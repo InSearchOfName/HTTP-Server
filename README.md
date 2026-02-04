@@ -14,7 +14,7 @@ make
 ## Run
 
 ```sh
-./server
+./server.out
 ```
 
 By default it serves [index.html](index.html).
