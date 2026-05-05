@@ -39,8 +39,8 @@ static void process_buffered_requests(int client_sockfd, Buffer *buf)
         char request_line[1024];
         size_t max_copy = sizeof(request_line) - 1;
         size_t copy_len = ((size_t)req_end < max_copy)
-            ? (size_t)req_end
-            : max_copy;
+                              ? (size_t)req_end
+                              : max_copy;
 
         memcpy(request_line, buf->data, copy_len);
         request_line[copy_len] = '\0';
@@ -144,7 +144,11 @@ void accept_client()
 void handle_client(int client_sockfd)
 {
     Buffer buf;
-    buffer_init(&buf, 4096);
+    if (buffer_init(&buf, 4096) != 0)
+    {
+        fprintf(stderr, "Failed to initialize request buffer\n");
+        return;
+    }
 
     char tmp[4096];
 
@@ -154,7 +158,11 @@ void handle_client(int client_sockfd)
         if (n <= 0)
             break;
 
-        buffer_append(&buf, tmp, (size_t)n);
+        if (buffer_append(&buf, tmp, (size_t)n) != 0)
+        {
+            fprintf(stderr, "Failed to append to request buffer\n");
+            break;
+        }
 
         process_buffered_requests(client_sockfd, &buf);
     }
@@ -199,7 +207,8 @@ char *handle_response(const char *path, size_t *response_len)
             "<h1>404 - File Not Found</h1>",
             sizeof("HTTP/1.1 404 Not Found\r\n"
                    "Content-Type: text/html\r\n\r\n"
-                   "<h1>404 - File Not Found</h1>") - 1,
+                   "<h1>404 - File Not Found</h1>") -
+                1,
             response_len);
     }
 
@@ -227,12 +236,12 @@ char *handle_response(const char *path, size_t *response_len)
 
     // Write headers
     size_t header_len = (size_t)snprintf(response,
-                                          512 + file_size + 1,
-                                          "HTTP/1.1 200 OK\r\n"
-                                          "Content-Type: text/html\r\n"
-                                          "Content-Length: %ld\r\n"
-                                          "\r\n",
-                                          file_size);
+                                         512 + file_size + 1,
+                                         "HTTP/1.1 200 OK\r\n"
+                                         "Content-Type: text/html\r\n"
+                                         "Content-Length: %ld\r\n"
+                                         "\r\n",
+                                         file_size);
 
     if (header_len >= (size_t)(512 + file_size + 1))
     {
