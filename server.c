@@ -10,6 +10,69 @@
 
 int server_sockfd = -1; // Global to track the socket
 
+static int send_all(int fd, const char *data, size_t total)
+{
+    size_t sent = 0;
+
+    while (sent < total)
+    {
+        ssize_t written = write(fd, data + sent, total - sent);
+
+        if (written <= 0)
+        {
+            perror("write");
+            return -1;
+        }
+
+        sent += (size_t)written;
+    }
+
+    return 0;
+}
+
+static void process_buffered_requests(int client_sockfd, Buffer *buf)
+{
+    ssize_t req_end;
+
+    while ((req_end = buffer_find(buf, "\r\n\r\n", 4)) >= 0)
+    {
+        char request_line[1024];
+        size_t max_copy = sizeof(request_line) - 1;
+        size_t copy_len = ((size_t)req_end < max_copy)
+            ? (size_t)req_end
+            : max_copy;
+
+        memcpy(request_line, buf->data, copy_len);
+        request_line[copy_len] = '\0';
+
+        char method[16], path[256], version[16];
+        char *response;
+
+        if (sscanf(request_line, "%15s %255s %15s", method, path, version) != 3)
+        {
+            buffer_consume(buf, (size_t)req_end + 4);
+            continue;
+        }
+
+        response = handle_response(path);
+        if (!response)
+        {
+            buffer_consume(buf, (size_t)req_end + 4);
+            continue;
+        }
+
+        if (send_all(client_sockfd, response, strlen(response)) < 0)
+        {
+            free(response);
+            buffer_consume(buf, (size_t)req_end + 4);
+            continue;
+        }
+
+        free(response);
+        buffer_consume(buf, (size_t)req_end + 4);
+    }
+}
+
 int start_server(int port)
 {
     // Create socket
@@ -91,60 +154,7 @@ void handle_client(int client_sockfd)
 
         buffer_append(&buf, tmp, (size_t)n);
 
-        ssize_t req_end;
-
-        // process all complete HTTP requests in buffer
-        while ((req_end = buffer_find(&buf, "\r\n\r\n", 4)) >= 0)
-        {
-            char request_line[1024];
-
-            // SAFE boundary handling (fixes signed/unsigned issue)
-            size_t max_copy = sizeof(request_line) - 1;
-
-            size_t copy_len = ((size_t)req_end < max_copy)
-                ? (size_t)req_end
-                : max_copy;
-
-            memcpy(request_line, buf.data, copy_len);
-            request_line[copy_len] = '\0';
-
-            char method[16], path[256], version[16];
-
-            if (sscanf(request_line, "%15s %255s %15s", method, path, version) != 3)
-            {
-                buffer_consume(&buf, (size_t)req_end + 4);
-                continue;
-            }
-
-            char *response = handle_response(path);
-            if (!response)
-            {
-                buffer_consume(&buf, (size_t)req_end + 4);
-                continue;
-            }
-
-            // SAFE write loop (handles partial writes)
-            size_t total = strlen(response);
-            size_t sent = 0;
-
-            while (sent < total)
-            {
-                ssize_t w = write(client_sockfd, response + sent, total - sent);
-
-                if (w <= 0)
-                {
-                    perror("write");
-                    break;
-                }
-
-                sent += (size_t)w;
-            }
-
-            free(response);
-
-            // consume full request including "\r\n\r\n"
-            buffer_consume(&buf, (size_t)req_end + 4);
-        }
+        process_buffered_requests(client_sockfd, &buf);
     }
 
     buffer_free(&buf);
@@ -163,51 +173,48 @@ char *handle_response(const char *path)
         strcat(filepath, path);
     }
 
-    if (file_exists(filepath))
+    if (!file_exists(filepath))
     {
-        FILE *file = fopen(filepath, "r");
-        if (file == NULL)
-        {
-            return strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
-        }
-
-        // Get file size
-        fseek(file, 0, SEEK_END);
-        long file_size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-
-        // Allocate buffer for headers + content
-        char *response = malloc(512 + file_size + 1);
-        if (!response)
-        {
-            fclose(file);
-            return NULL;
-        }
-
-        // Write headers
-        sprintf(response,
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/html\r\n"
-                "Content-Length: %ld\r\n"
-                "\r\n",
-                file_size);
-
-        // Read file content after headers
-        int header_len = strlen(response);
-        fread(response + header_len, 1, file_size, file);
-        response[header_len + file_size] = '\0';
-
-        fclose(file);
-        return response;
-    }
-    else
-    {
-        char *response = strdup(
+        return strdup(
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Type: text/html\r\n\r\n"
             "<h1>404 - File Not Found</h1>");
-        return response;
     }
+
+    FILE *file = fopen(filepath, "r");
+    if (file == NULL)
+    {
+        return strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Allocate buffer for headers + content
+    char *response = malloc(512 + file_size + 1);
+    if (!response)
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    // Write headers
+    sprintf(response,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Length: %ld\r\n"
+            "\r\n",
+            file_size);
+
+    // Read file content after headers
+    int header_len = strlen(response);
+    fread(response + header_len, 1, file_size, file);
+    response[header_len + file_size] = '\0';
+
+    fclose(file);
+    return response;
 }
 
 int file_exists(const char *path)
