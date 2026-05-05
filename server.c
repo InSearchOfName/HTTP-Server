@@ -78,16 +78,44 @@ void accept_client()
 
 void handle_client(int client_sockfd)
 {
-    char buffer[8192] = {0};
-    read(client_sockfd, buffer, sizeof(buffer) - 1);
-    // Logging
-    printf("\n%s\n", buffer);
+    Buffer buf;
+    buffer_init(&buf, 4096);
 
-    char method[16], path[256], version[16];
-    sscanf(buffer, "%15s %255s %15s", method, path, version);
+    char tmp[4096];
 
-    char *response = handle_response(path);
-    write(client_sockfd, response, strlen(response));
+    while (1)
+    {
+        ssize_t n = read(client_sockfd, tmp, sizeof(tmp));
+
+        if (n <= 0)
+        {
+            break;
+        }
+
+        buffer_append(&buf, tmp, n);
+
+        // Check if we have received the full HTTP request
+        ssize_t req_end = buffer_find(&buf, "\r\n\r\n", 4);
+
+        if (req_end == -1)
+        {
+            continue;
+        }
+
+        // Add null-terminator for parsing
+        buf.data[req_end] = '\0';
+
+        char method[16], path[256], version[16];
+        sscanf(buf.data, "%15s %255s %15s", method, path, version);
+
+        char *response = handle_response(path);
+
+        write(client_sockfd, response, strlen(response));
+        free(response);
+
+        buffer_consume(&buf, req_end);
+    }
+    buffer_free(&buf);
 }
 
 char *handle_response(char *path)
