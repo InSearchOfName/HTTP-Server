@@ -117,6 +117,11 @@ void handle_client(int client_sockfd)
             }
 
             char *response = handle_response(path);
+            if (!response)
+            {
+                buffer_consume(&buf, (size_t)req_end + 4);
+                continue;
+            }
 
             // SAFE write loop (handles partial writes)
             size_t total = strlen(response);
@@ -145,7 +150,7 @@ void handle_client(int client_sockfd)
     buffer_free(&buf);
 }
 
-char *handle_response(char *path)
+char *handle_response(const char *path)
 {
     char filepath[512] = ".";
 
@@ -163,7 +168,7 @@ char *handle_response(char *path)
         FILE *file = fopen(filepath, "r");
         if (file == NULL)
         {
-            return "HTTP/1.1 500 Internal Server Error\r\n\r\n";
+            return strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
         }
 
         // Get file size
@@ -173,6 +178,11 @@ char *handle_response(char *path)
 
         // Allocate buffer for headers + content
         char *response = malloc(512 + file_size + 1);
+        if (!response)
+        {
+            fclose(file);
+            return NULL;
+        }
 
         // Write headers
         sprintf(response,

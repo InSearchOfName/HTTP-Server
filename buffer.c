@@ -56,7 +56,7 @@ void buffer_consume(Buffer *b, size_t len)
     b->len -= len;
 }
 
-ssize_t buffer_find(Buffer *b, const char *pattern, size_t pattern_len)
+ssize_t buffer_find(const Buffer *b, const char *pattern, size_t pattern_len)
 {
     if (pattern_len > b->len)
     {
