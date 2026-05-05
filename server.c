@@ -88,33 +88,52 @@ void handle_client(int client_sockfd)
         ssize_t n = read(client_sockfd, tmp, sizeof(tmp));
 
         if (n <= 0)
-        {
             break;
-        }
 
         buffer_append(&buf, tmp, n);
 
-        // Check if we have received the full HTTP request
-        ssize_t req_end = buffer_find(&buf, "\r\n\r\n", 4);
+        // Process ALL complete HTTP requests in buffer
+        ssize_t req_end;
 
-        if (req_end == -1)
+        while ((req_end = buffer_find(&buf, "\r\n\r\n", 4)) != -1)
         {
-            continue;
+            // SAFETY: temporarily isolate request
+            char saved = buf.data[req_end];
+            buf.data[req_end] = '\0';
+
+            char method[16], path[256], version[16];
+
+            // parse request line safely
+            if (sscanf(buf.data, "%15s %255s %15s", method, path, version) != 3)
+            {
+                buf.data[req_end] = saved;
+                buffer_consume(&buf, req_end + 4);
+                continue;
+            }
+
+            buf.data[req_end] = saved;
+
+            char *response = handle_response(path);
+
+            // SAFE write (handles partial writes)
+            size_t total = strlen(response);
+            size_t sent = 0;
+
+            while (sent < total)
+            {
+                ssize_t w = write(client_sockfd, response + sent, total - sent);
+                if (w <= 0)
+                    break;
+                sent += w;
+            }
+
+            free(response);
+
+            // consume full request INCLUDING delimiter
+            buffer_consume(&buf, req_end + 4);
         }
-
-        // Add null-terminator for parsing
-        buf.data[req_end] = '\0';
-
-        char method[16], path[256], version[16];
-        sscanf(buf.data, "%15s %255s %15s", method, path, version);
-
-        char *response = handle_response(path);
-
-        write(client_sockfd, response, strlen(response));
-        free(response);
-
-        buffer_consume(&buf, req_end);
     }
+
     buffer_free(&buf);
 }
 
