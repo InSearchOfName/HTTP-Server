@@ -2,6 +2,7 @@
 #define BUFFER_H
 
 #include <stddef.h>
+#include <sys/types.h>
 
 typedef struct {
     char *data;
@@ -11,10 +12,9 @@ typedef struct {
 
 int buffer_init(Buffer *b, size_t initial_size);
 void buffer_free(Buffer *b);
-
 int buffer_append(Buffer *b, const char *data, size_t len);
 void buffer_consume(Buffer *b, size_t len);
-
-char *buffer_find(Buffer *b, const char *pattern, size_t pattern_len);
+ssize_t buffer_find(Buffer *b, const char *pattern, size_t pattern_len);
+static int buffer_grow(Buffer *b, size_t needed);
 
 #endif

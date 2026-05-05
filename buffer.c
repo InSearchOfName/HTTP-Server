@@ -1,4 +1,7 @@
-#include <buffer.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include "buffer.h"
 
 int buffer_init(Buffer *b, size_t initial_size)
 {
@@ -51,22 +54,20 @@ void buffer_consume(Buffer *b, size_t len)
     b->len -= len;
 }
 
-char *buffer_find(Buffer *b, const char *pattern, size_t pattern_len)
+ssize_t buffer_find(Buffer *b, const char *pattern, size_t pattern_len)
 {
-    if (pattern_len> b->len)
+    if (pattern_len > b->len)
     {
-        return NULL;
+        return -1;
     }
-    
+
     for (size_t i = 0; i <= b->len - pattern_len; i++)
     {
         if (memcmp(b->data + i, pattern, pattern_len) == 0)
-        {
-            return b->data + i;
-        }
+            return (ssize_t)i;
     }
 
-    return NULL;
+    return -1;
 }
 
 static int buffer_grow(Buffer *b, size_t needed)
