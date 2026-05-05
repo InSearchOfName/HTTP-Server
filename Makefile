@@ -1,8 +1,25 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -Werror -g
+
+TARGET = server.out
+
+SRC = main.c server.c buffer.c
+OBJ = $(SRC:.c=.o)
+
+all: $(TARGET)
+
+$(TARGET): $(OBJ)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+run: $(TARGET)
+	./$(TARGET)
+
 clean:
-	rm server.out
+	rm -f $(TARGET) $(OBJ)
 
-run: build
-	./server.out
+re: clean all
 
-build:
-	gcc -o server.out main.c server.c
+.PHONY: all run clean re
