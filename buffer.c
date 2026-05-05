@@ -3,6 +3,8 @@
 #include <sys/types.h>
 #include "buffer.h"
 
+static int buffer_grow(Buffer *b, size_t needed);
+
 int buffer_init(Buffer *b, size_t initial_size)
 {
     b->data = malloc(initial_size);
