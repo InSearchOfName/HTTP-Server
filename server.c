@@ -54,14 +54,16 @@ static void process_buffered_requests(int client_sockfd, Buffer *buf)
             continue;
         }
 
-        response = handle_response(path);
+        size_t response_len = 0;
+
+        response = handle_response(path, &response_len);
         if (!response)
         {
             buffer_consume(buf, (size_t)req_end + 4);
             continue;
         }
 
-        if (send_all(client_sockfd, response, strlen(response)) < 0)
+        if (send_all(client_sockfd, response, response_len) < 0)
         {
             free(response);
             buffer_consume(buf, (size_t)req_end + 4);
@@ -160,7 +162,23 @@ void handle_client(int client_sockfd)
     buffer_free(&buf);
 }
 
-char *handle_response(const char *path)
+static char *duplicate_response(const char *text, size_t text_len, size_t *response_len)
+{
+    char *response = malloc(text_len + 1);
+
+    if (!response)
+    {
+        return NULL;
+    }
+
+    memcpy(response, text, text_len);
+    response[text_len] = '\0';
+    *response_len = text_len;
+
+    return response;
+}
+
+char *handle_response(const char *path, size_t *response_len)
 {
     char filepath[512] = ".";
 
@@ -175,16 +193,23 @@ char *handle_response(const char *path)
 
     if (!file_exists(filepath))
     {
-        return strdup(
+        return duplicate_response(
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Type: text/html\r\n\r\n"
-            "<h1>404 - File Not Found</h1>");
+            "<h1>404 - File Not Found</h1>",
+            sizeof("HTTP/1.1 404 Not Found\r\n"
+                   "Content-Type: text/html\r\n\r\n"
+                   "<h1>404 - File Not Found</h1>") - 1,
+            response_len);
     }
 
     FILE *file = fopen(filepath, "r");
     if (file == NULL)
     {
-        return strdup("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        return duplicate_response(
+            "HTTP/1.1 500 Internal Server Error\r\n\r\n",
+            sizeof("HTTP/1.1 500 Internal Server Error\r\n\r\n") - 1,
+            response_len);
     }
 
     // Get file size
@@ -201,17 +226,25 @@ char *handle_response(const char *path)
     }
 
     // Write headers
-    sprintf(response,
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/html\r\n"
-            "Content-Length: %ld\r\n"
-            "\r\n",
-            file_size);
+    size_t header_len = (size_t)snprintf(response,
+                                          512 + file_size + 1,
+                                          "HTTP/1.1 200 OK\r\n"
+                                          "Content-Type: text/html\r\n"
+                                          "Content-Length: %ld\r\n"
+                                          "\r\n",
+                                          file_size);
+
+    if (header_len >= (size_t)(512 + file_size + 1))
+    {
+        fclose(file);
+        free(response);
+        return NULL;
+    }
 
     // Read file content after headers
-    int header_len = strlen(response);
     fread(response + header_len, 1, file_size, file);
     response[header_len + file_size] = '\0';
+    *response_len = header_len + (size_t)file_size;
 
     fclose(file);
     return response;
