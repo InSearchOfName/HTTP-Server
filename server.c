@@ -2,11 +2,11 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
 #include "server.h"
+#include "response.h"
 
 int server_sockfd = -1; // Global to track the socket
 
@@ -85,6 +85,16 @@ int start_server(int port)
         return -1;
     }
 
+    // Allow reusing address immediately after shutdown
+    int reuse = 1;
+    if (setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+    {
+        perror("setsockopt");
+        close(server_sockfd);
+        server_sockfd = -1;
+        return -1;
+    }
+
     // Configure server address
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -156,7 +166,9 @@ void handle_client(int client_sockfd)
     {
         ssize_t n = read(client_sockfd, tmp, sizeof(tmp));
         if (n <= 0)
+        {
             break;
+        }
 
         if (buffer_append(&buf, tmp, (size_t)n) != 0)
         {
@@ -168,99 +180,4 @@ void handle_client(int client_sockfd)
     }
 
     buffer_free(&buf);
-}
-
-static char *duplicate_response(const char *text, size_t text_len, size_t *response_len)
-{
-    char *response = malloc(text_len + 1);
-
-    if (!response)
-    {
-        return NULL;
-    }
-
-    memcpy(response, text, text_len);
-    response[text_len] = '\0';
-    *response_len = text_len;
-
-    return response;
-}
-
-char *handle_response(const char *path, size_t *response_len)
-{
-    char filepath[512] = ".";
-
-    if (strcmp(path, "/") == 0)
-    {
-        strcat(filepath, "/index.html");
-    }
-    else
-    {
-        strcat(filepath, path);
-    }
-
-    if (!file_exists(filepath))
-    {
-        return duplicate_response(
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Type: text/html\r\n\r\n"
-            "<h1>404 - File Not Found</h1>",
-            sizeof("HTTP/1.1 404 Not Found\r\n"
-                   "Content-Type: text/html\r\n\r\n"
-                   "<h1>404 - File Not Found</h1>") -
-                1,
-            response_len);
-    }
-
-    FILE *file = fopen(filepath, "r");
-    if (file == NULL)
-    {
-        return duplicate_response(
-            "HTTP/1.1 500 Internal Server Error\r\n\r\n",
-            sizeof("HTTP/1.1 500 Internal Server Error\r\n\r\n") - 1,
-            response_len);
-    }
-
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    // Allocate buffer for headers + content
-    char *response = malloc(512 + file_size + 1);
-    if (!response)
-    {
-        fclose(file);
-        return NULL;
-    }
-
-    // Write headers
-    size_t header_len = (size_t)snprintf(response,
-                                         512 + file_size + 1,
-                                         "HTTP/1.1 200 OK\r\n"
-                                         "Content-Type: text/html\r\n"
-                                         "Content-Length: %ld\r\n"
-                                         "\r\n",
-                                         file_size);
-
-    if (header_len >= (size_t)(512 + file_size + 1))
-    {
-        fclose(file);
-        free(response);
-        return NULL;
-    }
-
-    // Read file content after headers
-    fread(response + header_len, 1, file_size, file);
-    response[header_len + file_size] = '\0';
-    *response_len = header_len + (size_t)file_size;
-
-    fclose(file);
-    return response;
-}
-
-int file_exists(const char *path)
-{
-    struct stat buffer;
-    return stat(path, &buffer) == 0 ? 1 : 0;
 }

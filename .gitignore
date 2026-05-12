@@ -52,3 +52,5 @@ Mkfile.old
 dkms.conf
 
 # End of https://mrkandreev.name/snippets/gitignore-generator/#C
+
+dist

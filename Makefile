@@ -1,10 +1,10 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror -g
 
-TARGET = server.out
+TARGET = dist/server.out
 OBJDIR = build/
 
-SRC = main.c server.c buffer.c
+SRC = main.c server.c buffer.c response.c
 OBJ = $(SRC:%.c=$(OBJDIR)/%.o)
 
 all: $(TARGET)
