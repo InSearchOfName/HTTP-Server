@@ -2,23 +2,27 @@ CC = gcc
 CFLAGS = -Wall -Wextra -Werror -g
 
 TARGET = server.out
+OBJDIR = build/
 
 SRC = main.c server.c buffer.c
-OBJ = $(SRC:.c=.o)
+OBJ = $(SRC:%.c=$(OBJDIR)/%.o)
 
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
+	mkdir -p $(dir $(OBJ))
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
 
-%.o: %.c
+$(OBJDIR)/%.o: %.c
+	mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run: $(TARGET)
 	./$(TARGET)
 
 clean:
-	rm -f $(TARGET) $(OBJ)
+	rm -f $(TARGET)
+	rm -rf build
 
 re: clean all
 
