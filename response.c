@@ -4,6 +4,8 @@
 #include <sys/stat.h>
 #include "response.h"
 
+#define MAX_FILE_SIZE (64L * 1024 * 1024)
+
 static int file_exists(const char *path)
 {
     struct stat buffer;
@@ -166,11 +168,7 @@ char *handle_response(const char *path, size_t *response_len)
                                     "text/html",
                                     response_len);
     }
-
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-
-    if (file_size < 0)
+    if (fseek(file, 0, SEEK_END) != 0)
     {
         fclose(file);
         return build_error_response("HTTP/1.1 500 Internal Server Error",
@@ -179,34 +177,55 @@ char *handle_response(const char *path, size_t *response_len)
                                     response_len);
     }
 
-    fseek(file, 0, SEEK_SET);
+    long file_size = ftell(file);
 
-    char *response = malloc(512 + file_size + 1);
+    if (file_size < 0 || file_size > MAX_FILE_SIZE || fseek(file, 0, SEEK_SET) != 0)
+    {
+        fclose(file);
+        return build_error_response("HTTP/1.1 500 Internal Server Error",
+                                    "<h1>500 - Internal Server Error</h1>",
+                                    "text/html",
+                                    response_len);
+    }
+
+    size_t body_len = (size_t)file_size;
+    char header[256];
+    int header_size = snprintf(header,
+                               sizeof(header),
+                               "HTTP/1.1 200 OK\r\n"
+                               "Content-Type: %s\r\n"
+                               "Content-Length: %zu\r\n"
+                               "\r\n",
+                               content_type,
+                               body_len);
+
+    if (header_size < 0 || (size_t)header_size >= sizeof(header))
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    size_t header_len = (size_t)header_size;
+    char *response = malloc(header_len + body_len);
     if (!response)
     {
         fclose(file);
         return NULL;
     }
 
-    size_t header_len = (size_t)snprintf(response,
-                                         512 + file_size + 1,
-                                         "HTTP/1.1 200 OK\r\n"
-                                         "Content-Type: %s\r\n"
-                                         "Content-Length: %ld\r\n"
-                                         "\r\n",
-                                         content_type,
-                                         file_size);
+    memcpy(response, header, header_len);
 
-    if (header_len >= (size_t)(512 + file_size + 1))
+    if (fread(response + header_len, 1, body_len, file) != body_len)
     {
         fclose(file);
         free(response);
-        return NULL;
+        return build_error_response("HTTP/1.1 500 Internal Server Error",
+                                    "<h1>500 - Internal Server Error</h1>",
+                                    "text/html",
+                                    response_len);
     }
 
-    fread(response + header_len, 1, file_size, file);
-    response[header_len + file_size] = '\0';
-    *response_len = header_len + (size_t)file_size;
+    *response_len = header_len + body_len;
 
     fclose(file);
     return response;
