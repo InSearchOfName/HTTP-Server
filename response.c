@@ -37,20 +37,23 @@ static int decode_path(const char *path, char *out, size_t out_size)
 {
     size_t n = 0;
 
-    for (; *path && *path != '?' && *path != '#'; path++)
+    size_t i = 0;
+
+    while (path[i] && path[i] != '?' && path[i] != '#')
     {
-        char c = *path;
+        char c = path[i];
+        size_t consumed = 1;
 
         if (c == '%')
         {
-            int hi = hex_value(path[1]);
-            int lo = hi < 0 ? -1 : hex_value(path[2]);
+            int hi = hex_value(path[i + 1]);
+            int lo = hi < 0 ? -1 : hex_value(path[i + 2]);
 
             if (hi < 0 || lo < 0)
                 return -1;
 
             c = (char)(hi * 16 + lo);
-            path += 2;
+            consumed = 3;
 
             if (c == '\0')
                 return -1;
@@ -60,6 +63,7 @@ static int decode_path(const char *path, char *out, size_t out_size)
             return -1;
 
         out[n++] = c;
+        i += consumed;
     }
 
     out[n] = '\0';
