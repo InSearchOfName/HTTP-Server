@@ -45,7 +45,9 @@ static void process_buffered_requests(int client_sockfd, Buffer *buf)
         memcpy(request_line, buf->data, copy_len);
         request_line[copy_len] = '\0';
 
-        char method[16], path[256], version[16];
+        char method[16];
+        char path[256];
+        char version[16];
         char *response;
 
         if (sscanf(request_line, "%15s %255s %15s", method, path, version) != 3)
@@ -162,14 +164,10 @@ void handle_client(int client_sockfd)
 
     char tmp[4096];
 
-    while (1)
-    {
-        ssize_t n = read(client_sockfd, tmp, sizeof(tmp));
-        if (n <= 0)
-        {
-            break;
-        }
+    ssize_t n;
 
+    while ((n = read(client_sockfd, tmp, sizeof(tmp))) > 0)
+    {
         if (buffer_append(&buf, tmp, (size_t)n) != 0)
         {
             fprintf(stderr, "Failed to append to request buffer\n");
