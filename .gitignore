@@ -54,3 +54,6 @@ dkms.conf
 # End of https://mrkandreev.name/snippets/gitignore-generator/#C
 
 dist
+
+# Claude Code instructions (local only, never commit)
+CLAUDE.md

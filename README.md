@@ -17,11 +17,11 @@ make
 ./server.out
 ```
 
-By default it serves [index.html](index.html).
+By default it serves [public/index.html](public/index.html).
 
 ## Files
 
 - [main.c](main.c) - program entry point.
 - [server.c](server.c) / [server.h](server.h) - server implementation.
-- [index.html](index.html) - sample page.
+- [public/index.html](public/index.html) - sample page.
 - [Makefile](Makefile) - build script.

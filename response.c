@@ -1,15 +1,89 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include "response.h"
 
+#define DOC_ROOT "./public"
 #define MAX_FILE_SIZE (64L * 1024 * 1024)
 
-static int file_exists(const char *path)
+enum
 {
-    struct stat buffer;
-    return stat(path, &buffer) == 0 ? 1 : 0;
+    PATH_OK = 0,
+    PATH_NOT_FOUND = -1,
+    PATH_FORBIDDEN = -2
+};
+
+static int is_regular_file(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+/* Strips the query/fragment and percent-decodes the request path.
+ * Returns -1 on malformed escapes, an embedded NUL, or if it does not fit. */
+static int decode_path(const char *path, char *out, size_t out_size)
+{
+    size_t n = 0;
+
+    size_t i = 0;
+
+    while (path[i] && path[i] != '?' && path[i] != '#')
+    {
+        char c = path[i];
+        size_t consumed = 1;
+
+        if (c == '%')
+        {
+            int hi = hex_value(path[i + 1]);
+            int lo = hi < 0 ? -1 : hex_value(path[i + 2]);
+
+            if (hi < 0 || lo < 0)
+                return -1;
+
+            c = (char)(hi * 16 + lo);
+            consumed = 3;
+
+            if (c == '\0')
+                return -1;
+        }
+
+        if (n + 1 >= out_size)
+            return -1;
+
+        out[n++] = c;
+        i += consumed;
+    }
+
+    out[n] = '\0';
+    return 0;
+}
+
+/* Rejects backslashes and any ".." or dot-prefixed segment. */
+static int path_is_safe(const char *path)
+{
+    if (path[0] != '/' || strchr(path, '\\'))
+        return 0;
+
+    for (const char *seg = path; seg && *seg; seg = strchr(seg + 1, '/'))
+    {
+        if (seg[1] == '.')
+            return 0;
+    }
+
+    return 1;
 }
 
 static char *build_error_response(const char *status_line, const char *body, const char *content_type, size_t *response_len)
@@ -58,34 +132,55 @@ static char *build_error_response(const char *status_line, const char *body, con
 
 static int resolve_filepath(const char *path, char *filepath, size_t filepath_size)
 {
-    const char *search_roots[] = {"./dist", "."};
+    char decoded[256];
+    char candidate[512];
+    char real_root[PATH_MAX];
+    char real_file[PATH_MAX];
 
-    for (size_t i = 0; i < sizeof(search_roots) / sizeof(search_roots[0]); i++)
+    if (decode_path(path, decoded, sizeof(decoded)) != 0 || !path_is_safe(decoded))
     {
-        const char *root = search_roots[i];
-        int written;
-
-        if (strcmp(path, "/") == 0)
-        {
-            written = snprintf(filepath, filepath_size, "%s/index.html", root);
-        }
-        else
-        {
-            written = snprintf(filepath, filepath_size, "%s%s", root, path);
-        }
-
-        if (written < 0 || (size_t)written >= filepath_size)
-        {
-            continue;
-        }
-
-        if (file_exists(filepath))
-        {
-            return 0;
-        }
+        return PATH_FORBIDDEN;
     }
 
-    return -1;
+    int written;
+    if (strcmp(decoded, "/") == 0)
+    {
+        written = snprintf(candidate, sizeof(candidate), "%s/index.html", DOC_ROOT);
+    }
+    else
+    {
+        written = snprintf(candidate, sizeof(candidate), "%s%s", DOC_ROOT, decoded);
+    }
+
+    if (written < 0 || (size_t)written >= sizeof(candidate))
+    {
+        return PATH_FORBIDDEN;
+    }
+
+    if (!realpath(DOC_ROOT, real_root) || !realpath(candidate, real_file))
+    {
+        return PATH_NOT_FOUND;
+    }
+
+    /* Symlinks must not lead out of the document root. */
+    size_t root_len = strlen(real_root);
+    if (strncmp(real_file, real_root, root_len) != 0 || real_file[root_len] != '/')
+    {
+        return PATH_FORBIDDEN;
+    }
+
+    if (!is_regular_file(real_file))
+    {
+        return PATH_NOT_FOUND;
+    }
+
+    if (strlen(real_file) >= filepath_size)
+    {
+        return PATH_FORBIDDEN;
+    }
+
+    strcpy(filepath, real_file);
+    return PATH_OK;
 }
 
 static const char *content_type_for_path(const char *path)
@@ -147,10 +242,20 @@ static const char *content_type_for_path(const char *path)
 
 char *handle_response(const char *path, size_t *response_len)
 {
-    char filepath[512] = ".";
+    char filepath[PATH_MAX];
     const char *content_type;
 
-    if (resolve_filepath(path, filepath, sizeof(filepath)) != 0)
+    int resolved = resolve_filepath(path, filepath, sizeof(filepath));
+
+    if (resolved == PATH_FORBIDDEN)
+    {
+        return build_error_response("HTTP/1.1 403 Forbidden",
+                                    "<h1>403 - Forbidden</h1>",
+                                    "text/html",
+                                    response_len);
+    }
+
+    if (resolved != PATH_OK)
     {
         return build_error_response("HTTP/1.1 404 Not Found",
                                     "<h1>404 - File Not Found</h1>",
