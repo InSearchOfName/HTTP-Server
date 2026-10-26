@@ -10,7 +10,7 @@ OBJ = $(SRC:%.c=$(OBJDIR)/%.o)
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
-	mkdir -p $(dir $(OBJ))
+	mkdir -p $(dir $(TARGET))
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
 
 $(OBJDIR)/%.o: %.c
